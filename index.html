@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vocalprint — measure your voice</title>
+<meta name="description" content="slide your voice from low to high. measure your range, tessitura and passaggio in the browser.">
+<style>
+  :root {
+    --ink: #101012;
+    --paper: #ffffff;
+    --line: #101012;
+    --faint: #c9c9cc;
+    --mid: #6b6b70;
+    --mark: #d6452f;
+    --trace: #101012;
+  }
+  html[data-theme="dark"] {
+    --ink: #ececed;
+    --paper: #131316;
+    --line: #ececed;
+    --faint: #3a3a3f;
+    --mid: #8d8d94;
+    --mark: #ff6a4d;
+    --trace: #ececed;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.5 Arial, Helvetica, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 22px 80px; }
+
+  /* ---- masthead: the wordmark carries the line ---- */
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.5px; margin: 0; }
+  h1 .line {
+    display: inline-block; width: 46px; height: 2px;
+    background: var(--mark); vertical-align: 5px; margin: 0 2px;
+    transform-origin: left center; transition: transform 240ms ease;
+  }
+  h1:hover .line { transform: rotate(-14deg) scaleX(1.25); }
+  .tag { color: var(--mid); font-size: 14px; }
+  .theme {
+    margin-left: auto; background: none; border: 1px solid var(--faint);
+    color: var(--mid); font: inherit; font-size: 12px; padding: 4px 9px;
+    cursor: pointer; border-radius: 2px;
+  }
+  .theme:hover { border-color: var(--line); color: var(--ink); }
+
+  .lede { margin: 26px 0 0; font-size: 17px; max-width: 54ch; }
+  .lede b { font-weight: 700; }
+  .sub { margin: 10px 0 0; color: var(--mid); font-size: 14px; max-width: 58ch; }
+
+  /* ---- the staff: where the voice is drawn ---- */
+  .staff {
+    position: relative; margin: 30px 0 0;
+    border: 1px solid var(--faint); border-radius: 2px;
+    background: var(--paper);
+  }
+  #canvas { display: block; width: 100%; height: 320px; }
+  .staff-note {
+    position: absolute; left: 10px; bottom: 8px;
+    color: var(--mid); font-size: 12px; pointer-events: none;
+  }
+
+  /* ---- controls ---- */
+  .bar { display: flex; align-items: center; gap: 14px; margin: 18px 0 0; flex-wrap: wrap; }
+  button.go {
+    background: var(--ink); color: var(--paper); border: none; border-radius: 2px;
+    font: inherit; font-size: 15px; font-weight: 700; padding: 11px 22px;
+    cursor: pointer; transition: opacity 150ms ease;
+  }
+  button.go:hover { opacity: 0.82; }
+  button.go:disabled { opacity: 0.35; cursor: default; }
+  button.ghost {
+    background: none; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 2px; font: inherit; font-size: 14px; padding: 10px 16px; cursor: pointer;
+  }
+  button.ghost:hover { background: var(--ink); color: var(--paper); }
+  .status { color: var(--mid); font-size: 14px; }
+  .status.bad { color: var(--mark); }
+
+  select {
+    font: inherit; font-size: 14px; padding: 9px 10px;
+    border: 1px solid var(--faint); border-radius: 2px;
+    background: var(--paper); color: var(--ink);
+  }
+
+  /* ---- results: size is the hierarchy ---- */
+  .result { margin: 40px 0 0; display: none; }
+  .result.on { display: block; }
+  .verdict { font-size: 34px; font-weight: 700; letter-spacing: -0.6px; line-height: 1.15; }
+  .verdict .qual { color: var(--mid); font-weight: 400; font-size: 19px; display: block; margin-top: 6px; letter-spacing: 0; }
+
+  .grid {
+    margin: 26px 0 0; display: grid; gap: 1px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    background: var(--faint); border: 1px solid var(--faint); border-radius: 2px;
+  }
+  .cell { background: var(--paper); padding: 14px 15px; }
+  .cell .k { color: var(--mid); font-size: 12px; text-transform: lowercase; }
+  .cell .v { font-size: 25px; font-weight: 700; margin-top: 3px; letter-spacing: -0.3px; line-height: 1.1; }
+  .cell .v.small { font-size: 17px; letter-spacing: 0; }
+  .cell .n { color: var(--mid); font-size: 12px; margin-top: 3px; }
+
+  table.rank { width: 100%; border-collapse: collapse; margin: 26px 0 0; font-size: 14px; table-layout: fixed; }
+  table.rank td:first-child { width: 46%; padding-right: 20px; }
+  table.rank th {
+    text-align: left; font-weight: 400; color: var(--mid); font-size: 12px;
+    padding: 0 0 7px; border-bottom: 1px solid var(--faint);
+  }
+  table.rank td { padding: 9px 0; border-bottom: 1px solid var(--faint); }
+  table.rank td.n { text-align: right; color: var(--mid); font-variant-numeric: tabular-nums; }
+  table.rank tr.top td { font-weight: 700; color: var(--ink); }
+  .meter { display: block; height: 2px; background: var(--faint); margin-top: 6px; width: 100%; }
+  .meter i { display: block; height: 2px; background: var(--mark); }
+
+  .caveat {
+    margin: 30px 0 0; padding: 16px 0 0; border-top: 1px solid var(--faint);
+    color: var(--mid); font-size: 13px;
+    columns: 2; column-gap: 34px;
+  }
+  .caveat p { margin: 0 0 10px; break-inside: avoid; }
+  .caveat p.wide { column-span: all; margin-top: 4px; }
+  @media (max-width: 620px) { .caveat { columns: 1; } }
+  .caveat b { color: var(--ink); font-weight: 700; }
+
+  footer { margin: 56px 0 0; padding: 18px 0 0; border-top: 1px solid var(--faint); color: var(--mid); font-size: 13px; }
+  footer a { color: var(--ink); }
+  @media (max-width: 560px) {
+    h1 { font-size: 24px; }
+    .verdict { font-size: 26px; }
+    #canvas { height: 240px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>vocal<span class="line"></span>print</h1>
+    <span class="tag">your voice, as a line</span>
+    <button class="theme" id="theme">dark</button>
+  </header>
+
+  <p class="lede">slide your voice from as <b>low</b> as you can go to as <b>high</b> as you can go, on one long “aah”. follow the line.</p>
+  <p class="sub">nothing is uploaded. the recording never leaves this tab — it is measured here and thrown away.</p>
+
+  <div class="staff">
+    <canvas id="canvas"></canvas>
+    <span class="staff-note" id="staffnote">the grey line is your guide · your voice draws over it</span>
+  </div>
+
+  <div class="bar">
+    <button class="go" id="start">start · 10 seconds</button>
+    <select id="group" title="voice groups overlap; this narrows which bands are compared">
+      <option value="">compare against all types</option>
+      <option value="female">soprano / mezzo / alto</option>
+      <option value="male">tenor / baritone / bass</option>
+    </select>
+    <span class="status" id="status">hold still for a second first — the room gets measured before you sing.</span>
+  </div>
+
+  <section class="result" id="result">
+    <div class="verdict" id="verdict"></div>
+    <div class="grid" id="grid"></div>
+    <table class="rank" id="rank"></table>
+    <div class="caveat" id="caveat"></div>
+    <div class="bar"><button class="ghost" id="again">measure again</button></div>
+  </section>
+
+  <footer>
+    measured with yin pitch tracking · classification bands follow standard choral convention ·
+    <a href="https://github.com/nosey-dewdrop/vocalprint">source</a>
+  </footer>
+</div>
+
+<script type="module" src="./src/app.js"></script>
+</body>
+</html>

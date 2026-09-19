@@ -1,0 +1,13 @@
+{
+  "name": "vocalprint",
+  "version": "0.1.0",
+  "description": "Measure your vocal range, tessitura and passaggio in the browser",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}
