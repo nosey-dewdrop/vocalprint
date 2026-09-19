@@ -135,6 +135,12 @@
     h1 { font-size: 24px; }
     .verdict { font-size: 26px; }
     #canvas { height: 240px; }
+    /* Five cells in a two-column grid leave a sixth slot empty; stack instead. */
+    .grid { grid-template-columns: 1fr; }
+    .cell { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .cell .k { flex: 0 0 96px; }
+    .cell .v, .cell .v.small { font-size: 19px; margin-top: 0; }
+    .cell .n { flex: 1 1 100%; margin-top: 2px; }
   }
 </style>
 </head>
