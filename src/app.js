@@ -18,6 +18,8 @@ let LOW_MIDI = DEFAULT_LOW_MIDI;
 let HIGH_MIDI = DEFAULT_HIGH_MIDI;
 
 function fitAxis(points) {
+  // Start from the guide's own span: it is drawn on this axis and must stay
+  // on screen whatever the voice does.
   let low = DEFAULT_LOW_MIDI;
   let high = DEFAULT_HIGH_MIDI;
   for (const point of points) {
@@ -25,9 +27,10 @@ function fitAxis(points) {
     if (point.midi < low) low = point.midi;
     if (point.midi > high) high = point.midi;
   }
-  // Whole octaves, with a little air, so the labelled rules stay meaningful.
-  LOW_MIDI = Math.floor((low - 2) / 12) * 12;
-  HIGH_MIDI = Math.ceil((high + 2) / 12) * 12;
+  // Snap outward to whole octaves so the labelled rules land on C's. A voice
+  // that stayed inside the default span leaves the axis exactly as it was.
+  LOW_MIDI = Math.min(DEFAULT_LOW_MIDI, Math.floor(low / 12) * 12);
+  HIGH_MIDI = Math.max(DEFAULT_HIGH_MIDI, Math.ceil(high / 12) * 12);
 }
 
 const canvas = document.getElementById('canvas');
@@ -79,7 +82,7 @@ window.addEventListener('resize', resize);
 
 function toY(midi, height) {
   const clamped = Math.max(LOW_MIDI, Math.min(HIGH_MIDI, midi));
-  return height - ((clamped - LOW_MIDI) / (HIGH_MIDI - LOW_MIDI)) * (height - 24) - 12;
+  return height - ((clamped - LOW_MIDI) / (HIGH_MIDI - LOW_MIDI)) * (height - 28) - 14;
 }
 
 /** The guide: low at the start, high at the end, with room tone in front. */
