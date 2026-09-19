@@ -11,8 +11,9 @@ slide from your lowest note to your highest, ten seconds, nothing uploaded.
 |---|---|
 | **Range** | The span you reached, reported as the 5th–95th percentile so one cracked note does not inflate it. The true extremes are shown separately. |
 | **Tessitura** | Where your voice settled *and stayed steady*. Pitch frames are binned per semitone and weighted by local stability, then the narrowest band holding 68% of that weight is taken. This tracks voice type more closely than range does. |
-| **Register shift** | The passaggio: where the voice changes register, found as a step in the loudness contour between the plateau on each side. Reported with its strength, or not at all when the sweep is too even to locate one. |
-| **Confidence** | Voiced-frame ratio, mean YIN periodicity, and how much range was actually explored. A recording that cannot support a classification is refused rather than answered. |
+| **Register shift** | The passaggio: where the voice changes register, found as a step in the loudness contour between the plateau on each side. A breath produces a loudness step too, so candidates are rejected unless voicing is continuous across them and both sides are steady. Reported with its strength, or not at all when the sweep is too even to locate one. |
+| **Confidence** | Voiced-frame ratio, mean YIN periodicity, and how much range was actually explored. A recording that cannot support a classification is refused rather than answered, with advice specific to what went wrong — a single held note, too short a slide, a loud room, a clipping input. |
+| **Direction** | Whether the slide went up, down, or stayed level. A downward slide still measures correctly and is accepted; the page just says so, since the guide asked for the other direction. |
 
 ## What it does not measure
 
@@ -39,6 +40,10 @@ microphone → room-tone gate → YIN f0 → clean → analyse
   register leaps survive), then a median filter.
 - **The gate** records ~1.2 s of room tone before the guide starts, and refuses
   the recording if the voice is not at least 12 dB above it, or if the input clips.
+- **The staff** is drawn from E2 to C6 by default and widens to whole octaves
+  when a voice goes past either end, so a deep bass or a high soprano is not
+  clamped against the edge. The guide line stays anchored to the default span
+  so it cannot move under the singer mid-slide.
 
 Echo cancellation, noise suppression and auto gain are all switched off: they
 distort the harmonics and flatten the loudness contour the measurements need.
@@ -46,7 +51,7 @@ distort the harmonics and flatten the loudness contour the measurements need.
 ## Running it
 
 ```sh
-npm test          # 29 tests, no network
+npm test          # 33 tests, no network
 python3 -m http.server 8000    # then open localhost:8000
 ```
 
