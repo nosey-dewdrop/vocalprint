@@ -232,12 +232,46 @@ test('analyze reports a plausible range for a sweep', () => {
   assert.ok(result.ranking[0].score >= result.ranking[1].score);
 });
 
-test('confidence refuses a too-narrow sample', () => {
+test('confidence refuses a single held note, and says so specifically', () => {
   const frames = cleanTrack(trackPitch(saw(220, 1), SR), {});
   const midiValues = frames.filter((f) => f.hz !== null).map((f) => hzToMidi(f.hz));
   const result = confidence(frames, computeRange(midiValues));
   assert.equal(result.usable, false);
-  assert.ok(result.reasons.some((r) => r.includes('narrow')));
+  // One steady note is a different mistake from a short slide, and the advice
+  // it needs is different too -- so the reason has to distinguish them.
+  assert.ok(
+    result.reasons.some((r) => r.includes('one held note')),
+    `expected a held-note reason, got: ${result.reasons.join(' | ')}`
+  );
+  assert.equal(result.direction, 'flat');
+});
+
+test('confidence refuses a slide that is too short', () => {
+  // Wide enough not to be a held note, still too narrow to place a voice.
+  const frames = [];
+  for (let i = 0; i < 120; i++) {
+    frames.push({ t: i * 0.012, hz: 220 * Math.pow(2, (i / 120) * (4 / 12)), probability: 0.9, rms: 0.3 });
+  }
+  const midiValues = frames.map((f) => hzToMidi(f.hz));
+  const result = confidence(frames, computeRange(midiValues));
+  assert.equal(result.usable, false);
+  assert.ok(
+    result.reasons.some((r) => r.includes('narrow')),
+    `expected a narrow-range reason, got: ${result.reasons.join(' | ')}`
+  );
+});
+
+test('sweep direction is reported', () => {
+  const rising = [];
+  const falling = [];
+  for (let i = 0; i < 200; i++) {
+    const up = 130 * Math.pow(2, (i / 200) * 2);
+    rising.push({ t: i * 0.012, hz: up, probability: 0.9, rms: 0.3 });
+    falling.push({ t: i * 0.012, hz: 520 / Math.pow(2, (i / 200) * 2), probability: 0.9, rms: 0.3 });
+  }
+  const range = (frames) => computeRange(frames.map((f) => hzToMidi(f.hz)));
+  assert.equal(confidence(rising, range(rising)).direction, 'up');
+  assert.equal(confidence(falling, range(falling)).direction, 'down');
 });
 
 test('confidence refuses near-silence', () => {

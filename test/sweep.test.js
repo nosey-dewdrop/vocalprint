@@ -53,11 +53,23 @@ function voiceSweep(lowHz, highHz, seconds, opts = {}) {
  */
 function zeroCrossingHz(signal, at, window = 2048) {
   const end = Math.min(at + window, signal.length);
+
+  // Hysteresis: the signal must swing past +/-10% of its own peak before the
+  // next crossing counts. Without it, noise straddling zero registers several
+  // spurious crossings per cycle and the reported frequency jumps -- which
+  // made this test fail about one run in five.
+  let peak = 0;
+  for (let i = at; i < end; i++) peak = Math.max(peak, Math.abs(signal[i]));
+  const gate = peak * 0.1;
+
   const crossings = [];
+  let armed = false; // true once the signal has gone convincingly negative
   for (let i = at + 1; i < end; i++) {
-    if (signal[i - 1] < 0 && signal[i] >= 0) {
+    if (signal[i] < -gate) armed = true;
+    if (armed && signal[i - 1] < 0 && signal[i] >= 0) {
       // Linear interpolation for where the signal actually crossed zero.
       crossings.push(i - 1 + signal[i - 1] / (signal[i - 1] - signal[i]));
+      armed = false;
     }
   }
   if (crossings.length < 2) return 0;
@@ -190,4 +202,44 @@ test('an even sweep reports no register break', () => {
   const frames = cleanTrack(trackPitch(signal, SR, { frameSize: 2048, hopSize: 512 }), {});
   const result = analyze(frames, { group: 'male' });
   assert.equal(result.passaggio, null, `invented a break at ${result.passaggio?.note}`);
+});
+
+/** A sweep interrupted by a breath: silence, then the voice returns. */
+function breathySweep(lowHz, highHz, seconds, breathAt, breathFor = 0.45) {
+  const out = voiceSweep(lowHz, highHz, seconds);
+  const from = Math.floor(breathAt * SR);
+  const to = Math.floor((breathAt + breathFor) * SR);
+  for (let i = from; i < to && i < out.length; i++) {
+    // Not digital silence: a breath is quiet turbulent noise.
+    out[i] = (Math.random() * 2 - 1) * 0.004;
+  }
+  return out;
+}
+
+test('a breath mid-sweep is not reported as a register break', () => {
+  // The loudness step at a breath is larger than most real passaggi, so a
+  // detector that only looks at loudness will happily call it one.
+  const signal = breathySweep(noteToHz('C3'), noteToHz('C5'), 8, 4.0);
+  const frames = cleanTrack(trackPitch(signal, SR, { frameSize: 2048, hopSize: 512 }), {});
+  const result = analyze(frames, { group: 'male' });
+  assert.equal(
+    result.passaggio,
+    null,
+    `a breath was misread as a register shift at ${result.passaggio?.note}`
+  );
+});
+
+test('a real break is still found when the sweep also contains a breath', () => {
+  const breakHz = noteToHz('G4');
+  const signal = brokenSweep(noteToHz('C3'), noteToHz('C5'), 8, breakHz);
+  // Breath early, well away from the break.
+  const from = Math.floor(1.6 * SR);
+  for (let i = from; i < from + Math.floor(0.4 * SR); i++) {
+    signal[i] = (Math.random() * 2 - 1) * 0.004;
+  }
+  const frames = cleanTrack(trackPitch(signal, SR, { frameSize: 2048, hopSize: 512 }), {});
+  const result = analyze(frames, { group: 'male' });
+  assert.ok(result.passaggio !== null, 'the real break was lost');
+  const off = Math.abs(1200 * Math.log2(noteToHz(result.passaggio.note) / breakHz));
+  assert.ok(off < 300, `break at G4 reported at ${result.passaggio.note}`);
 });

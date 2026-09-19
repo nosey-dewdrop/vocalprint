@@ -8,8 +8,27 @@ import { hzToMidi, midiToNote, noteToMidi } from './notes.js';
 
 const DURATION = 10;
 const NOISE_WINDOW = 1.2; // seconds of room tone before the guide starts
-const LOW_MIDI = noteToMidi('E2');  // bottom of the drawn staff
-const HIGH_MIDI = noteToMidi('C6'); // top of the drawn staff
+const DEFAULT_LOW_MIDI = noteToMidi('E2');  // bottom of the drawn staff
+const DEFAULT_HIGH_MIDI = noteToMidi('C6'); // top of the drawn staff
+
+// The staff widens to whatever the voice actually did. A fixed axis clamps a
+// deep bass or a high soprano against the edge and hides the very notes they
+// were proud of.
+let LOW_MIDI = DEFAULT_LOW_MIDI;
+let HIGH_MIDI = DEFAULT_HIGH_MIDI;
+
+function fitAxis(points) {
+  let low = DEFAULT_LOW_MIDI;
+  let high = DEFAULT_HIGH_MIDI;
+  for (const point of points) {
+    if (point.midi === null) continue;
+    if (point.midi < low) low = point.midi;
+    if (point.midi > high) high = point.midi;
+  }
+  // Whole octaves, with a little air, so the labelled rules stay meaningful.
+  LOW_MIDI = Math.floor((low - 2) / 12) * 12;
+  HIGH_MIDI = Math.ceil((high + 2) / 12) * 12;
+}
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -67,7 +86,9 @@ function toY(midi, height) {
 function guideMidi(t) {
   if (t < NOISE_WINDOW) return null;
   const progress = (t - NOISE_WINDOW) / (DURATION - NOISE_WINDOW);
-  return LOW_MIDI + 4 + progress * (HIGH_MIDI - LOW_MIDI - 8);
+  // Anchored to the default axis, not the fitted one: the guide must not move
+  // under the singer while they are following it.
+  return DEFAULT_LOW_MIDI + 4 + progress * (DEFAULT_HIGH_MIDI - DEFAULT_LOW_MIDI - 8);
 }
 
 function drawStaff() {
@@ -219,6 +240,8 @@ async function run() {
   resultEl.classList.remove('on');
   live = [];
   lastResult = null;
+  LOW_MIDI = DEFAULT_LOW_MIDI;
+  HIGH_MIDI = DEFAULT_HIGH_MIDI;
   elapsed = 0;
   let stream;
 
@@ -245,6 +268,7 @@ async function run() {
         ? `measuring the room — stay quiet (${(NOISE_WINDOW - elapsed).toFixed(1)}s)`
         : `singing — follow the line (${(DURATION - elapsed).toFixed(1)}s)`;
     if (level < 0.005) live.push({ t: elapsed, midi: null });
+    fitAxis(live);
     draw();
   };
 
@@ -274,6 +298,7 @@ async function run() {
     midi: f.hz === null ? null : hzToMidi(f.hz),
   }));
   lastResult = result;
+  fitAxis(live);
   draw();
 
   render(result, gate, device);
@@ -297,8 +322,29 @@ function render(result, gate, device) {
       `<span class="qual">${reasons.join(' · ') || 'no usable voice in the recording'}</span>`;
     grid.innerHTML = '';
     rank.innerHTML = '';
+    const advice = [];
+    if (gate.problems.some((p) => p.includes('room'))) {
+      advice.push('find a quieter room, or move closer to the mic.');
+    }
+    if (gate.problems.some((p) => p.includes('clipping'))) {
+      advice.push('move back from the mic — the input is overloading.');
+    }
+    if (gate.problems.some((p) => p.includes('barely'))) {
+      advice.push('check that the right microphone is selected, and sing up.');
+    }
+    if (result.confidence.reasons.some((r) => r.includes('one held note'))) {
+      advice.push('this needs a slide, not a single note: start at your lowest and climb steadily to your highest.');
+    } else if (result.confidence.reasons.some((r) => r.includes('narrow'))) {
+      advice.push('go further in both directions — at least an octave is needed to place a voice.');
+    }
+    if (result.confidence.reasons.some((r) => r.includes('hard to track'))) {
+      advice.push('sing a steady open “aah” rather than a breathy or whispered tone.');
+    }
+    if (!advice.length) advice.push('try again with one long, steady slide from low to high.');
+
     caveat.innerHTML =
-      '<p>nothing was classified, because a number produced from this recording would be wrong. try again in a quieter room, closer to the mic, and slide across as much of your range as you can.</p>';
+      '<p class="wide">nothing was classified, because a number produced from this recording would be wrong.</p>' +
+      advice.map((line) => `<p>${line}</p>`).join('');
     statusEl.classList.add('bad');
     statusEl.textContent = 'recording rejected — see below.';
     resultEl.classList.add('on');
@@ -306,7 +352,11 @@ function render(result, gate, device) {
   }
 
   statusEl.classList.remove('bad');
-  statusEl.textContent = 'done.';
+  const direction = result.confidence.direction;
+  statusEl.textContent =
+    direction === 'down'
+      ? 'done — you slid downward; the numbers hold either way.'
+      : 'done.';
 
   // The claim is band membership, never identity.
   const best = result.best;
@@ -351,8 +401,16 @@ function render(result, gate, device) {
     ? ''
     : '<p>you compared against all six bands. male and female bands overlap heavily, so narrowing the comparison gives a sharper answer.</p>';
 
+  const directionNote =
+    direction === 'down'
+      ? '<p>you slid from high to low rather than low to high. range and tessitura are unaffected, but the register shift is easier to place on a rising slide.</p>'
+      : direction === 'flat'
+        ? '<p>the slide stayed fairly level. the wider you range, the more confidently a band can be placed.</p>'
+        : '';
+
   caveat.innerHTML =
     groupNote +
+    directionNote +
     '<p><b>what this measures.</b> pitch, and only pitch. range is the span you reached, tessitura is where your voice settled and stayed steady — that second one tracks voice type more closely than range does.</p>' +
     '<p><b>what it does not.</b> timbre. real classification also weighs the colour of the voice, which needs a trained singing tone to measure reliably, so it is left out rather than guessed at.</p>' +
     '<p><b>so it says “band”, not “you are”.</b> a voice type is decided by a teacher over months, across repertoire. this is one sweep in one room on one mic.</p>' +
@@ -372,6 +430,8 @@ againButton.addEventListener('click', () => {
   resultEl.classList.remove('on');
   live = [];
   lastResult = null;
+  LOW_MIDI = DEFAULT_LOW_MIDI;
+  HIGH_MIDI = DEFAULT_HIGH_MIDI;
   draw();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });

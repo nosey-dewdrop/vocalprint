@@ -109,7 +109,11 @@ export function computeTessitura(frames, opts = {}) {
  */
 export function findPassaggio(frames, opts = {}) {
   const minStrength = opts.minStrength ?? 0.25;
-  const voiced = frames.filter((f) => f.hz !== null && f.rms > 0);
+  // Index into the original track, so gaps (breaths, pauses) stay visible.
+  const voiced = [];
+  frames.forEach((f, index) => {
+    if (f.hz !== null && f.rms > 0) voiced.push({ ...f, index });
+  });
   if (voiced.length < 30) return null;
 
   // Compare the loudness *plateau* on each side of a candidate point rather
@@ -128,12 +132,45 @@ export function findPassaggio(frames, opts = {}) {
     return count ? sum / count : 0;
   };
 
+  /** Spread of a window, relative to its own level: a plateau scores near 0. */
+  const relativeSpread = (from, to) => {
+    const values = [];
+    for (let i = Math.max(0, from); i < Math.min(voiced.length, to); i++) {
+      values.push(voiced[i].rms);
+    }
+    if (values.length < 2) return Infinity;
+    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    if (!avg) return Infinity;
+    const variance = values.reduce((a, b) => a + (b - avg) ** 2, 0) / values.length;
+    return Math.sqrt(variance) / avg;
+  };
+
+  /** True if the voice cut out anywhere inside this stretch. */
+  const hasGap = (from, to) => {
+    const a = Math.max(0, from);
+    const b = Math.min(voiced.length - 1, to);
+    for (let i = a; i < b; i++) {
+      // Consecutive entries whose original indices are not adjacent mean
+      // unvoiced frames sat between them -- a breath or a pause.
+      if (voiced[i + 1].index - voiced[i].index > 2) return true;
+    }
+    return false;
+  };
+
   let best = null;
   const edge = Math.max(side, Math.floor(voiced.length * 0.15)); // skip onset and release
   for (let i = edge; i < voiced.length - edge; i++) {
     const before = mean(i - side * 2, i - side);
     const after = mean(i + side, i + side * 2);
     if (!before || !after) continue;
+
+    // A breath produces a loudness step too, and it is not a register change.
+    // Requiring both sides to be steady plateaus with continuous voicing is
+    // what separates the two.
+    if (hasGap(i - side * 2, i + side * 2)) continue;
+    if (relativeSpread(i - side * 2, i - side) > 0.25) continue;
+    if (relativeSpread(i + side, i + side * 2) > 0.25) continue;
+
     const change = Math.abs(Math.log2(after / before));
     if (best === null || change > best.change) {
       best = { change, midi: hzToMidi(voiced[i].hz) };
@@ -204,16 +241,45 @@ export function confidence(frames, range) {
   const reasons = [];
   if (voicedRatio < 0.4) reasons.push('recording is mostly silence or noise');
   if (meanProbability < 0.6) reasons.push('pitch was hard to track');
-  if (spanSemitones < 7) reasons.push('range explored is too narrow to classify');
+  if (spanSemitones < 7) {
+    reasons.push(
+      spanSemitones < 2
+        ? 'that was one held note, not a slide — start low and climb'
+        : 'range explored is too narrow to classify'
+    );
+  }
 
   return {
     score: Number(score.toFixed(3)),
     voicedRatio: Number(voicedRatio.toFixed(3)),
     meanProbability: Number(meanProbability.toFixed(3)),
     spanSemitones: Number(spanSemitones.toFixed(1)),
+    direction: sweepDirection(voiced),
     usable: score >= 0.5 && spanSemitones >= 7,
     reasons,
   };
+}
+
+/**
+ * Which way the sweep actually went.
+ *
+ * The measurement works either way -- a range is a range -- but a singer who
+ * slid downward did not follow the guide, and telling them so is more useful
+ * than silently accepting it.
+ */
+function sweepDirection(voiced) {
+  if (voiced.length < 20) return 'unknown';
+  const chunk = Math.floor(voiced.length / 4);
+  const meanMidi = (from, to) => {
+    let sum = 0;
+    for (let i = from; i < to; i++) sum += hzToMidi(voiced[i].hz);
+    return sum / (to - from);
+  };
+  const start = meanMidi(0, chunk);
+  const end = meanMidi(voiced.length - chunk, voiced.length);
+  const delta = end - start;
+  if (Math.abs(delta) < 3) return 'flat';
+  return delta > 0 ? 'up' : 'down';
 }
 
 /** Full analysis over a cleaned track. */
